@@ -1,8 +1,2 @@
-/ {
-    compatible = "zmk,keymap";
-    keymap {
-        default_layer {
-            bindings = <&kp Q &kp W &kp E &kp A &kp S &kp D &kp Z &kp X &kp C &kp 1 &kp 2 &kp 3>;
-        };
-    };
-};
+name: macropad_4x3
+description: 4x3 macropad for Seeed XIAO RP2040
