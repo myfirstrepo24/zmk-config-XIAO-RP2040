@@ -10,13 +10,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Reset west workspace
-        run: rm -rf .west west.yml zmk
+        run: rm -rf .west west.yml zmk zephyr modules bootloader
 
       - name: Install west
         run: pip install west
 
       - name: Initialize west
-        run: west init -l config
+        run: west init -l config --force
 
       - name: Update west
         run: west update
@@ -29,3 +29,4 @@ jobs:
         with:
           name: firmware
           path: build/zephyr/zmk.uf2
+
