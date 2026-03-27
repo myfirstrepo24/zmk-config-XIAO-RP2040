@@ -9,6 +9,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Reset west workspace
+        run: rm -rf .west west.yml zmk
+
       - name: Install west
         run: pip install west
 
