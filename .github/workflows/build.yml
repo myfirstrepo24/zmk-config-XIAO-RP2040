@@ -3,4 +3,26 @@ on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build:
-    uses: zmkfirmware/zmk/.github/workflows/build.yml@main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install west
+        run: pip install west
+
+      - name: Initialize west
+        run: west init -l config
+
+      - name: Update west
+        run: west update
+
+      - name: Build firmware
+        run: west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: build/zephyr/zmk.uf2
