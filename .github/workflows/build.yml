@@ -9,35 +9,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Create west workspace
+      - name: Prepare and build ZMK in one step
         run: |
-          mkdir workspace
-          mv * workspace || true
-          mv .* workspace || true
+          mkdir -p workspace
+          # move repo contents into workspace (ignore errors)
+          shopt -s dotglob || true
+          mv -- * workspace/ || true
+          mv -- .[^.]* workspace/ || true
           cd workspace
           rm -rf .west west.yml zmk zephyr modules bootloader
-
-      - name: Install west
-        run: pip install west
-
-      - name: Initialize west
-        run: |
-          cd workspace
+          pip install west
           west init -l config
-
-      - name: Update west
-        run: |
-          cd workspace
           west update
-
-      - name: Build firmware
-        run: |
-          cd workspace
           west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
+        shell: bash
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: firmware
           path: workspace/build/zephyr/zmk.uf2
-
