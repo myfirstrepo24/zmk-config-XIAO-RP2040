@@ -3,7 +3,4 @@ on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build:
-    uses: zmkfirmware/zmk/.github/workflows/build-user-config.yml@main
-    with:
-      board: seeed_xiao_rp2040
-      shield: macropad_4x3
+    uses: zmkfirmware/zmk/.github/workflows/build.yml@main
