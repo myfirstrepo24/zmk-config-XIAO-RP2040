@@ -16,7 +16,7 @@ jobs:
         run: pip install west
 
       - name: Initialize west
-        run: west init -l config --force
+        run: west init -l config
 
       - name: Update west
         run: west update
