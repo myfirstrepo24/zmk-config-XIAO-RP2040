@@ -1,3 +1,4 @@
+# .github/workflows/build.yml
 name: Build ZMK firmware
 on:
   push:
@@ -26,45 +27,32 @@ jobs:
           . .venv/bin/activate
           pip install --upgrade pip
 
-      - name: Install west and requirements
+      - name: Install west and Python requirements
         run: |
           . .venv/bin/activate
+          pip install --upgrade pip
           pip install west
           pip install -r requirements.txt || true
 
-      - name: Initialize west and update
+      - name: Initialize west workspace (if present)
         run: |
           . .venv/bin/activate
           if [ -f west.yml ]; then
             west init -l .
-            west update || true
+            west update --depth 1 || true
+          else
+            echo "No west.yml found; skipping west init/update"
           fi
 
       - name: Build ZMK firmware
-        run: |
-          . .venv/bin/activate
-          # Adjust board and shield to match your config
-          west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
         env:
           ZEPHYR_TOOLCHAIN_VARIANT: zephyr
+        run: |
+          . .venv/bin/activate
+          echo "Workspace listing:"
+          ls -la
+          # Adjust source dir (-s) and board (-b) to match your repo
+          west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
 
       - name: Collect firmware files
-        run: |
-          mkdir -p artifacts
-          # common Zephyr output paths
-          if [ -f build/zephyr/zephyr.uf2 ]; then
-            cp build/zephyr/zephyr.uf2 artifacts/
-          fi
-          if [ -f build/zephyr/zephyr.bin ]; then
-            cp build/zephyr/zephyr.bin artifacts/
-          fi
-          if [ -f build/zephyr/zephyr.hex ]; then
-            cp build/zephyr/zephyr.hex artifacts/
-          fi
-
-      - name: Upload firmware artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmware
-          path: artifacts
+        run
