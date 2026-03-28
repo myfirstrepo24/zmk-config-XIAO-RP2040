@@ -9,12 +9,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Prepare workspace and build ZMK
+      - name: Prepare and build ZMK
+        shell: bash
         run: |
           set -euo pipefail
 
-          # Create workspace and move everything except workspace into it
+          # Create workspace
           mkdir -p workspace
+
+          # Move repo contents into workspace (skip workspace itself)
           shopt -s dotglob || true
           for entry in * .[^.]*; do
             [ "$entry" = "workspace" ] && continue
@@ -24,12 +27,14 @@ jobs:
 
           cd workspace
 
-          # Ensure a clean west workspace
+          # Clean any old west workspace
           rm -rf .west west.yml zmk zephyr modules bootloader || true
 
-          # Create config directory and write a valid west manifest
+          # Ensure config directory exists
           mkdir -p config
-          cat > config/west.yml <<'WEST_MANIFEST'
+
+          # Write west manifest
+          cat > config/west.yml << 'EOF'
 manifest:
   remotes:
     - name: zmkfirmware
@@ -38,20 +43,18 @@ manifest:
     - name: zmk
       remote: zmkfirmware
       revision: main
-WEST_MANIFEST
+EOF
 
           # Install west
           python -m pip install --upgrade pip
           pip install west
 
-          # Initialize and update west (verbose for debugging)
+          # Initialize and update
           west init -l config
           west update -v
 
-          # Build firmware (adjust board/shield as needed)
-          west -v build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
-
-        shell: bash
+          # Build firmware
+          west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
