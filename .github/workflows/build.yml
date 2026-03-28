@@ -7,9 +7,14 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # default; will be overridden if we detect a zephyr directory
+      ZEPHYR_TOOLCHAIN_VARIANT: zephyr
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -19,34 +24,74 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git build-essential python3-venv python3-pip
+          sudo apt-get install -y git build-essential python3-venv python3-pip cmake ninja-build
 
       - name: Create virtual environment
         run: |
           python -m venv .venv
           . .venv/bin/activate
-          pip install --upgrade pip
+          pip install --upgrade pip setuptools
 
       - name: Install west and Python requirements
         run: |
           . .venv/bin/activate
           pip install --upgrade pip
           pip install west
-          pip install -r requirements.txt || true
+          # If repo includes a requirements.txt for ZMK, install it (safe fallback)
+          if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
 
-      - name: Initialize west workspace if manifest exists
+      - name: Initialize west workspace (try common locations)
         run: |
           . .venv/bin/activate
-          if [ -f west.yml ]; then
-            echo "Found west.yml at repo root; initializing workspace"
+          # Prefer manifest in config/, fall back to repo root
+          if [ -f config/west.yml ]; then
+            echo "Initializing west in config/"
+            (cd config && west init -l .) || true
+            (cd config && west update --depth 1) || true
+            # make workspace root the repo root for later commands
+            mv .west ../.west || true
+          elif [ -f west.yml ]; then
+            echo "Initializing west at repo root"
             west init -l .
             west update --depth 1 || true
-          elif [ -f config/west.yml ]; then
-            echo "Found west.yml in config/; initializing workspace in config/"
-            west init -l config
-            west update --depth 1 || true
           else
-            echo "No west.yml found; skipping west init/update"
+            echo "No west.yml found in repo root or config/; skipping west init/update"
+          fi
+
+      - name: Install Zephyr Python requirements if present
+        run: |
+          . .venv/bin/activate
+          # If a zephyr directory exists, install its Python deps so west gets the extension
+          if [ -d zephyr ] && [ -f zephyr/scripts/requirements.txt ]; then
+            pip install -r zephyr/scripts/requirements.txt || true
+          fi
+          # Also try the common CI requirements file
+          if [ -d zephyr ] && [ -f zephyr/scripts/requirements-ci.txt ]; then
+            pip install -r zephyr/scripts/requirements-ci.txt || true
+          fi
+
+      - name: Debug west environment (helpful if build still fails)
+        run: |
+          . .venv/bin/activate
+          echo "Which west:"
+          which west || true
+          echo "West version and available commands:"
+          west --version || true
+          west help || true
+          echo "West status (verbose):"
+          west -vv status || true
+          echo "Workspace listing:"
+          ls -la
+          echo "Show .west directory:"
+          ls -la .west || true
+
+      - name: Set ZEPHYR_BASE if local zephyr exists
+        run: |
+          if [ -d zephyr ]; then
+            echo "Found local zephyr directory; setting ZEPHYR_BASE"
+            echo "ZEPHYR_BASE=$(pwd)/zephyr" >> $GITHUB_ENV
+          else
+            echo "No local zephyr directory found; ZEPHYR_BASE unchanged"
           fi
 
       - name: Build ZMK firmware
@@ -54,38 +99,25 @@ jobs:
           ZEPHYR_TOOLCHAIN_VARIANT: zephyr
         run: |
           . .venv/bin/activate
-          echo "Listing workspace root:"
-          ls -la
-          # Choose build invocation depending on where the manifest is
-          if [ -f west.yml ]; then
-            echo "Building using workspace root west.yml"
-            west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
-          elif [ -f config/west.yml ]; then
-            echo "Building using config/west.yml"
+          echo "Effective ZEPHYR_BASE: $ZEPHYR_BASE"
+          # Try building from workspace root; adjust -s and -b if your source/board differ
+          if [ -f config/west.yml ] || [ -f west.yml ]; then
             west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
           else
-            echo "No west workspace manifest found; attempting direct build (may fail)"
+            # fallback: try direct build (non-workspace)
             west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3 || true
           fi
 
       - name: Collect firmware files
         run: |
           mkdir -p artifacts
-          # Common Zephyr output locations
-          if [ -f build/zephyr/zephyr.uf2 ]; then
-            cp build/zephyr/zephyr.uf2 artifacts/
-          fi
-          if [ -f build/zephyr/zephyr.bin ]; then
-            cp build/zephyr/zephyr.bin artifacts/
-          fi
-          if [ -f build/zephyr/zephyr.hex ]; then
-            cp build/zephyr/zephyr.hex artifacts/
-          fi
-          # Also check for nested build outputs (project-specific)
-          for f in $(find . -type f -path "*/build/zephyr/*" -name "zephyr.*" 2>/dev/null); do
-            cp "$f" artifacts/ || true
-          done
-          echo "Artifacts directory contents:"
+          # Common Zephyr output paths
+          if [ -f build/zephyr/zephyr.uf2 ]; then cp build/zephyr/zephyr.uf2 artifacts/; fi
+          if [ -f build/zephyr/zephyr.bin ]; then cp build/zephyr/zephyr.bin artifacts/; fi
+          if [ -f build/zephyr/zephyr.hex ]; then cp build/zephyr/zephyr.hex artifacts/; fi
+          # Search for any zephyr.* files under build directories
+          find . -type f -path "*/build/zephyr/zephyr.*" -exec cp {} artifacts/ \; || true
+          echo "Artifacts contents:"
           ls -la artifacts || true
 
       - name: Upload firmware artifact
@@ -94,3 +126,4 @@ jobs:
         with:
           name: firmware
           path: artifacts
+
