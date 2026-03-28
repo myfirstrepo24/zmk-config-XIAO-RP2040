@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ZEPHYR_TOOLCHAIN_VARIANT: zephyr
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,71 +32,66 @@ jobs:
           . .venv/bin/activate
           pip install --upgrade pip setuptools
 
-      - name: Install west (initial) and repo requirements
+      - name: Install west (initial)
         run: |
           . .venv/bin/activate
           pip install --upgrade pip
           pip install west
 
-      - name: Install Zephyr Python requirements and ensure west extensions
+      - name: Install Zephyr and repo requirements and refresh west
         run: |
           . .venv/bin/activate
-          # If a local zephyr directory exists, install its Python requirements so west gets the extension
           if [ -d zephyr ] && [ -f zephyr/scripts/requirements.txt ]; then
             pip install -r zephyr/scripts/requirements.txt || true
           fi
-          if [ -d zephyr ] && [ -f zephyr/scripts/requirements-ci.txt ]; then
-            pip install -r zephyr/scripts/requirements-ci.txt || true
-          fi
-          # If the repo provides a requirements.txt (ZMK), install it too
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt || true
           fi
-          # Reinstall west so it picks up any new entry points provided by Zephyr packages
           pip install --force-reinstall west
 
-      - name: Initialize west workspace (try common locations)
+      - name: Initialize west workspace
         run: |
           . .venv/bin/activate
-          # Prefer manifest in config/, fall back to repo root
           if [ -f config/west.yml ]; then
-            echo "Initializing west in config/"
             (cd config && west init -l .) || true
             (cd config && west update --depth 1) || true
-            # move .west into repo root if needed
-            if [ -d config/.west ]; then
-              mv config/.west .west || true
-            fi
+            if [ -d config/.west ]; then mv config/.west .west || true; fi
           elif [ -f west.yml ]; then
-            echo "Initializing west at repo root"
             west init -l .
             west update --depth 1 || true
           else
-            echo "No west.yml found in repo root or config/; skipping west init/update"
+            echo "No west.yml found; skipping west init/update"
           fi
 
-      - name: Debug west environment (diagnostics)
+      - name: Debug west environment and entry points
         run: |
           . .venv/bin/activate
-          echo "Which west:"
+          echo "=== which west ==="
           which west || true
-          echo "West version and available commands (top lines):"
+          echo
+          echo "=== pip list (sample) ==="
+          pip list --format=columns | sed -n '1,80p' || true
+          echo
+          echo "=== west help (first lines) ==="
           west --version || true
-          west help | sed -n '1,40p' || true
-          echo "West status (verbose):"
-          west -vv status || true
-          echo "Workspace listing:"
-          ls -la
-          echo "Show .west directory:"
-          ls -la .west || true
+          west help | sed -n '1,60p' || true
+          echo
+          echo "=== west entry points ==="
+          python - <<'PY'
+import pkg_resources
+eps = [ep.name for ep in pkg_resources.iter_entry_points('west.commands')]
+print('entry_points_count=', len(eps))
+for ep in eps:
+    print(ep)
+PY
+          echo
+          echo "=== repo listing ==="
+          ls -la || true
 
       - name: Set ZEPHYR_BASE if local zephyr exists
         run: |
           if [ -d zephyr ]; then
-            echo "Found local zephyr directory; setting ZEPHYR_BASE"
             echo "ZEPHYR_BASE=$(pwd)/zephyr" >> $GITHUB_ENV
-          else
-            echo "No local zephyr directory found; ZEPHYR_BASE unchanged"
           fi
 
       - name: Build ZMK firmware
@@ -104,24 +100,19 @@ jobs:
         run: |
           . .venv/bin/activate
           echo "Effective ZEPHYR_BASE: $ZEPHYR_BASE"
-          # Build using workspace manifest if present; adjust -s and -b to match your repo
           if [ -f config/west.yml ] || [ -f west.yml ]; then
             west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
           else
-            # fallback: try direct build (non-workspace)
             west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3 || true
           fi
 
       - name: Collect firmware files
         run: |
           mkdir -p artifacts
-          # Common Zephyr output paths
           if [ -f build/zephyr/zephyr.uf2 ]; then cp build/zephyr/zephyr.uf2 artifacts/; fi
           if [ -f build/zephyr/zephyr.bin ]; then cp build/zephyr/zephyr.bin artifacts/; fi
           if [ -f build/zephyr/zephyr.hex ]; then cp build/zephyr/zephyr.hex artifacts/; fi
-          # Search for any zephyr.* files under build directories
           find . -type f -path "*/build/zephyr/zephyr.*" -exec cp {} artifacts/ \; || true
-          echo "Artifacts contents:"
           ls -la artifacts || true
 
       - name: Upload firmware artifact
@@ -130,4 +121,3 @@ jobs:
         with:
           name: firmware
           path: artifacts
-
