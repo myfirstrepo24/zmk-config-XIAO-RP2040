@@ -44,8 +44,6 @@ jobs:
         run: |
           . .venv/bin/activate
           echo "Starting minimal ZMK build check"
-          # Replace the following with your actual build commands
-          # Example placeholder:
           if command -v west >/dev/null 2>&1; then
             echo "west available"
           else
@@ -57,7 +55,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: zmk-debug-log
-          path: |
-            .venv
-            || true
-
+          path: .venv
