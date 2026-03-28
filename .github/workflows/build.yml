@@ -26,13 +26,13 @@ jobs:
           . .venv/bin/activate
           pip install --upgrade pip
 
-      - name: Install ZMK toolchain prerequisites
+      - name: Install west and requirements
         run: |
           . .venv/bin/activate
           pip install west
           pip install -r requirements.txt || true
 
-      - name: Initialize west if present
+      - name: Initialize west and update
         run: |
           . .venv/bin/activate
           if [ -f west.yml ]; then
@@ -40,19 +40,31 @@ jobs:
             west update || true
           fi
 
-      - name: Run minimal build check
+      - name: Build ZMK firmware
         run: |
           . .venv/bin/activate
-          echo "Starting minimal ZMK build check"
-          if command -v west >/dev/null 2>&1; then
-            echo "west available"
-          else
-            echo "west not found, skipping full build"
+          # Adjust board and shield to match your config
+          west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
+        env:
+          ZEPHYR_TOOLCHAIN_VARIANT: zephyr
+
+      - name: Collect firmware files
+        run: |
+          mkdir -p artifacts
+          # common Zephyr output paths
+          if [ -f build/zephyr/zephyr.uf2 ]; then
+            cp build/zephyr/zephyr.uf2 artifacts/
+          fi
+          if [ -f build/zephyr/zephyr.bin ]; then
+            cp build/zephyr/zephyr.bin artifacts/
+          fi
+          if [ -f build/zephyr/zephyr.hex ]; then
+            cp build/zephyr/zephyr.hex artifacts/
           fi
 
-      - name: Upload debug artifact
+      - name: Upload firmware artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: zmk-debug-log
-          path: .venv
+          name: firmware
+          path: artifacts
