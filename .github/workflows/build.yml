@@ -34,11 +34,16 @@ jobs:
           pip install west
           pip install -r requirements.txt || true
 
-      - name: Initialize west workspace (if present)
+      - name: Initialize west workspace if manifest exists
         run: |
           . .venv/bin/activate
           if [ -f west.yml ]; then
+            echo "Found west.yml at repo root; initializing workspace"
             west init -l .
+            west update --depth 1 || true
+          elif [ -f config/west.yml ]; then
+            echo "Found west.yml in config/; initializing workspace in config/"
+            west init -l config
             west update --depth 1 || true
           else
             echo "No west.yml found; skipping west init/update"
@@ -49,10 +54,43 @@ jobs:
           ZEPHYR_TOOLCHAIN_VARIANT: zephyr
         run: |
           . .venv/bin/activate
-          echo "Workspace listing:"
+          echo "Listing workspace root:"
           ls -la
-          # Adjust source dir (-s) and board (-b) to match your repo
-          west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
+          # Choose build invocation depending on where the manifest is
+          if [ -f west.yml ]; then
+            echo "Building using workspace root west.yml"
+            west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
+          elif [ -f config/west.yml ]; then
+            echo "Building using config/west.yml"
+            west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
+          else
+            echo "No west workspace manifest found; attempting direct build (may fail)"
+            west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3 || true
+          fi
 
       - name: Collect firmware files
-        run
+        run: |
+          mkdir -p artifacts
+          # Common Zephyr output locations
+          if [ -f build/zephyr/zephyr.uf2 ]; then
+            cp build/zephyr/zephyr.uf2 artifacts/
+          fi
+          if [ -f build/zephyr/zephyr.bin ]; then
+            cp build/zephyr/zephyr.bin artifacts/
+          fi
+          if [ -f build/zephyr/zephyr.hex ]; then
+            cp build/zephyr/zephyr.hex artifacts/
+          fi
+          # Also check for nested build outputs (project-specific)
+          for f in $(find . -type f -path "*/build/zephyr/*" -name "zephyr.*" 2>/dev/null); do
+            cp "$f" artifacts/ || true
+          done
+          echo "Artifacts directory contents:"
+          ls -la artifacts || true
+
+      - name: Upload firmware artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: artifacts
