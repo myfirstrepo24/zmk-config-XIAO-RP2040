@@ -8,7 +8,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # default; will be overridden if we detect a zephyr directory
       ZEPHYR_TOOLCHAIN_VARIANT: zephyr
     steps:
       - name: Checkout repository
@@ -32,13 +31,28 @@ jobs:
           . .venv/bin/activate
           pip install --upgrade pip setuptools
 
-      - name: Install west and Python requirements
+      - name: Install west (initial) and repo requirements
         run: |
           . .venv/bin/activate
           pip install --upgrade pip
           pip install west
-          # If repo includes a requirements.txt for ZMK, install it (safe fallback)
-          if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
+
+      - name: Install Zephyr Python requirements and ensure west extensions
+        run: |
+          . .venv/bin/activate
+          # If a local zephyr directory exists, install its Python requirements so west gets the extension
+          if [ -d zephyr ] && [ -f zephyr/scripts/requirements.txt ]; then
+            pip install -r zephyr/scripts/requirements.txt || true
+          fi
+          if [ -d zephyr ] && [ -f zephyr/scripts/requirements-ci.txt ]; then
+            pip install -r zephyr/scripts/requirements-ci.txt || true
+          fi
+          # If the repo provides a requirements.txt (ZMK), install it too
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt || true
+          fi
+          # Reinstall west so it picks up any new entry points provided by Zephyr packages
+          pip install --force-reinstall west
 
       - name: Initialize west workspace (try common locations)
         run: |
@@ -48,8 +62,10 @@ jobs:
             echo "Initializing west in config/"
             (cd config && west init -l .) || true
             (cd config && west update --depth 1) || true
-            # make workspace root the repo root for later commands
-            mv .west ../.west || true
+            # move .west into repo root if needed
+            if [ -d config/.west ]; then
+              mv config/.west .west || true
+            fi
           elif [ -f west.yml ]; then
             echo "Initializing west at repo root"
             west init -l .
@@ -58,26 +74,14 @@ jobs:
             echo "No west.yml found in repo root or config/; skipping west init/update"
           fi
 
-      - name: Install Zephyr Python requirements if present
-        run: |
-          . .venv/bin/activate
-          # If a zephyr directory exists, install its Python deps so west gets the extension
-          if [ -d zephyr ] && [ -f zephyr/scripts/requirements.txt ]; then
-            pip install -r zephyr/scripts/requirements.txt || true
-          fi
-          # Also try the common CI requirements file
-          if [ -d zephyr ] && [ -f zephyr/scripts/requirements-ci.txt ]; then
-            pip install -r zephyr/scripts/requirements-ci.txt || true
-          fi
-
-      - name: Debug west environment (helpful if build still fails)
+      - name: Debug west environment (diagnostics)
         run: |
           . .venv/bin/activate
           echo "Which west:"
           which west || true
-          echo "West version and available commands:"
+          echo "West version and available commands (top lines):"
           west --version || true
-          west help || true
+          west help | sed -n '1,40p' || true
           echo "West status (verbose):"
           west -vv status || true
           echo "Workspace listing:"
@@ -100,7 +104,7 @@ jobs:
         run: |
           . .venv/bin/activate
           echo "Effective ZEPHYR_BASE: $ZEPHYR_BASE"
-          # Try building from workspace root; adjust -s and -b if your source/board differ
+          # Build using workspace manifest if present; adjust -s and -b to match your repo
           if [ -f config/west.yml ] || [ -f west.yml ]; then
             west build -s config -b seeed_xiao_rp2040 -- -DSHIELD=macropad_4x3
           else
