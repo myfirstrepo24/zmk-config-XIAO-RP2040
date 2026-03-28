@@ -58,3 +58,4 @@ WEST_MANIFEST
         with:
           name: firmware
           path: workspace/build/zephyr/zmk.uf2
+
